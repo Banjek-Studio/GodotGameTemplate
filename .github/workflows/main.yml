@@ -1,4 +1,4 @@
-name: "Export & Publish (Auto Paths)"
+name: "Export & Publish (Game Version)"
 
 on:
   push:
@@ -8,7 +8,7 @@ on:
 
 env:
   GODOT_VERSION: 4.5.1
-  # ITCH_USER and ITCH_GAME_ID are retrieved automatically from Variables.
+  # Secrets are used for sensitive data (User/ID)
 
 jobs:
   export_game:
@@ -28,9 +28,26 @@ jobs:
           sudo apt install -y wine64 wine32
           echo "WINE_PATH=$(which wine)" >> $GITHUB_OUTPUT
 
-      # 2. Setup and Export Godot
-      # FIX: I removed "use_preset_export_path: true".
-      # Now the action will automatically generate paths regardless of your Godot settings.
+      # 2. Get Version from Godot Project
+      # This reads 'config/version="x.x.x"' from project.godot
+      - name: Get Game Version
+        id: get_version
+        shell: bash
+        run: |
+          # Find the line with config/version and extract the text inside quotes
+          VERSION=$(grep "config/version=" project.godot | cut -d '"' -f 2)
+          
+          # If version is empty (not set in Godot), fallback to run number
+          if [ -z "$VERSION" ]; then
+            VERSION="0.0.${{ github.run_number }}"
+            echo "::warning::Could not find version in project.godot! Using fallback: $VERSION"
+          fi
+          
+          echo "GAME_VERSION=$VERSION" >> $GITHUB_ENV
+          echo "Detected Version: $VERSION"
+
+      # 3. Setup and Export Godot
+      # (Don't forget to push your fixed export_presets.cfg!)
       - name: Setup and Export Godot
         uses: firebelley/godot-export@v7.0.0
         with:
@@ -40,59 +57,61 @@ jobs:
           archive_output: true
           cache: true
           wine_path: ${{ steps.wine_install.outputs.WINE_PATH }}
+          use_preset_export_path: true
 
-      # 3. Check Variables
-      - name: Check Variables
-        if: vars.ITCH_GAME_ID == '' || vars.ITCH_USER == ''
+      # 4. Check Secrets
+      - name: Check Secrets
+        if: secrets.ITCH_GAME_ID == '' || secrets.ITCH_USER == ''
         run: |
-          echo "::warning::ITCH_GAME_ID or ITCH_USER is missing!"
-          echo "Make sure ITCH_USER is set in Organization Variables and ITCH_GAME_ID in Repository Variables."
+          echo "::warning::ITCH_GAME_ID or ITCH_USER is missing in Secrets!"
 
-      # 4. Deploy Windows
+      # 5. Deploy Windows
       - name: Deploy Windows to Itch.io
-        if: success() && vars.ITCH_GAME_ID != '' && vars.ITCH_USER != '' && vars.DISABLE_WINDOWS != 'true'
+        if: success() && secrets.ITCH_GAME_ID != '' && secrets.ITCH_USER != ''
         uses: manleydev/butler-publish-itchio-action@master
         env:
           BUTLER_CREDENTIALS: ${{ secrets.BUTLER_CREDENTIALS }}
           CHANNEL: windows
-          ITCH_GAME: ${{ vars.ITCH_GAME_ID }}
-          ITCH_USER: ${{ vars.ITCH_USER }}
-          # The action automatically names the zip based on the preset name
+          ITCH_GAME: ${{ secrets.ITCH_GAME_ID }}
+          ITCH_USER: ${{ secrets.ITCH_USER }}
           PACKAGE: ${{ steps.export.outputs.archive_directory }}/Windows Desktop.zip
-          VERSION: ${{ github.run_number }}
+          # Uses the version extracted from Godot
+          VERSION: ${{ env.GAME_VERSION }}
 
-      # 5. Deploy Linux
+      # 6. Deploy Linux
       - name: Deploy Linux to Itch.io
-        if: success() && vars.ITCH_GAME_ID != '' && vars.ITCH_USER != '' && vars.DISABLE_LINUX != 'true'
+        if: success() && secrets.ITCH_GAME_ID != '' && secrets.ITCH_USER != ''
         uses: manleydev/butler-publish-itchio-action@master
         env:
           BUTLER_CREDENTIALS: ${{ secrets.BUTLER_CREDENTIALS }}
           CHANNEL: linux
-          ITCH_GAME: ${{ vars.ITCH_GAME_ID }}
-          ITCH_USER: ${{ vars.ITCH_USER }}
+          ITCH_GAME: ${{ secrets.ITCH_GAME_ID }}
+          ITCH_USER: ${{ secrets.ITCH_USER }}
           PACKAGE: ${{ steps.export.outputs.archive_directory }}/Linux.zip
-          VERSION: ${{ github.run_number }}
+          VERSION: ${{ env.GAME_VERSION }}
 
-      # 6. Deploy Web
+      # 7. Deploy Web
       - name: Deploy Web to Itch.io
-        if: success() && vars.ITCH_GAME_ID != '' && vars.ITCH_USER != '' && vars.DISABLE_WEB != 'true'
+        if: success() && secrets.ITCH_GAME_ID != '' && secrets.ITCH_USER != ''
         uses: manleydev/butler-publish-itchio-action@master
         env:
           BUTLER_CREDENTIALS: ${{ secrets.BUTLER_CREDENTIALS }}
           CHANNEL: html5
-          ITCH_GAME: ${{ vars.ITCH_GAME_ID }}
-          ITCH_USER: ${{ vars.ITCH_USER }}
+          ITCH_GAME: ${{ secrets.ITCH_GAME_ID }}
+          ITCH_USER: ${{ secrets.ITCH_USER }}
           PACKAGE: ${{ steps.export.outputs.archive_directory }}/Web.zip
-          VERSION: ${{ github.run_number }}
+          VERSION: ${{ env.GAME_VERSION }}
 
-      # 7. Create GitHub Release
+      # 8. Create GitHub Release
       - name: Create GitHub Release
         if: success()
         uses: ncipollo/release-action@v1
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          tag: "v1.${{ github.run_number }}"
-          name: "Release v1.${{ github.run_number }}"
-          body: "Build Godot ${{ env.GODOT_VERSION }}"
+          # Creates a tag like "v1.0.0" based on your game version
+          tag: "v${{ env.GAME_VERSION }}"
+          name: "Release v${{ env.GAME_VERSION }}"
+          body: "Automated build for version ${{ env.GAME_VERSION }}"
           artifacts: "${{ steps.export.outputs.archive_directory }}/*.zip"
+          # Allows updating the same release if you push fixes without changing version
           allowUpdates: true
