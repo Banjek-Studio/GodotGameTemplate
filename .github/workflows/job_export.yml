@@ -1,0 +1,66 @@
+name: "Export Job"
+
+on:
+  workflow_call:
+    outputs:
+      version:
+        description: "Game Version"
+        value: ${{ jobs.export_job.outputs.output_version }}
+
+env:
+  GODOT_VERSION: 4.5.1
+
+jobs:
+  export_job:
+    runs-on: ubuntu-latest
+    outputs:
+      output_version: ${{ steps.get_version.outputs.VERSION }}
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # 1. Install Wine
+      - name: Install Wine
+        id: wine_install
+        run: |
+          sudo dpkg --add-architecture i386
+          sudo apt update
+          sudo apt install -y wine64 wine32
+          echo "WINE_PATH=$(which wine)" >> $GITHUB_OUTPUT
+
+      # 2. Get Version
+      - name: Get Version
+        id: get_version
+        shell: bash
+        run: |
+          VERSION=$(grep "config/version=" project.godot | cut -d '"' -f 2)
+          if [ -z "$VERSION" ]; then
+            VERSION="0.0.${{ github.run_number }}"
+          fi
+          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+
+      # 3. Export Godot
+      - name: Export Godot
+        uses: firebelley/godot-export@v7.0.0
+        with:
+          godot_executable_download_url: https://github.com/godotengine/godot/releases/download/${{ env.GODOT_VERSION }}-stable/Godot_v${{ env.GODOT_VERSION }}-stable_linux.x86_64.zip
+          godot_export_templates_download_url: https://github.com/godotengine/godot/releases/download/${{ env.GODOT_VERSION }}-stable/Godot_v${{ env.GODOT_VERSION }}-stable_export_templates.tpz
+          relative_project_path: ./
+          archive_output: false
+          cache: true
+          wine_path: ${{ steps.wine_install.outputs.WINE_PATH }}
+          use_preset_export_path: true
+
+      - name: Check Builds Folder
+        run: |
+          echo "Checking builds folder..."
+          ls -R builds/ || echo "Builds folder MISSING!"
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: game-builds
+          path: builds/
+          retention-days: 1
+          if-no-files-found: error
