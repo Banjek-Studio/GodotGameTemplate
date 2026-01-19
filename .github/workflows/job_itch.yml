@@ -1,0 +1,57 @@
+name: "Itch Job"
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        required: true
+        type: string
+
+jobs:
+  itch_job:
+    runs-on: ubuntu-latest
+
+    env:
+      ITCH_USER: ${{ vars.ITCH_USER }}
+      ITCH_GAME_ID: ${{ vars.ITCH_GAME_ID }}
+      BUTLER_CREDENTIALS: ${{ secrets.BUTLER_CREDENTIALS }}
+
+    steps:
+      - name: Download Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: game-builds
+          path: builds
+
+      # 1. WEB
+      - name: Deploy Web
+        if: env.BUTLER_CREDENTIALS != ''
+        uses: manleydev/butler-publish-itchio-action@master
+        env:
+          CHANNEL: html5
+          PACKAGE: builds/web
+          VERSION: ${{ inputs.version }}
+          ITCH_USER: ${{ env.ITCH_USER }}
+          ITCH_GAME: ${{ env.ITCH_GAME_ID }}
+
+      # 2. Windows
+      - name: Deploy Windows
+        if: env.BUTLER_CREDENTIALS != ''
+        uses: manleydev/butler-publish-itchio-action@master
+        env:
+          CHANNEL: windows
+          PACKAGE: builds/windows
+          VERSION: ${{ inputs.version }}
+          ITCH_USER: ${{ env.ITCH_USER }}
+          ITCH_GAME: ${{ env.ITCH_GAME_ID }}
+
+      # 3. Linux
+      - name: Deploy Linux
+        if: env.BUTLER_CREDENTIALS != ''
+        uses: manleydev/butler-publish-itchio-action@master
+        env:
+          CHANNEL: linux
+          PACKAGE: builds/linux
+          VERSION: ${{ inputs.version }}
+          ITCH_USER: ${{ env.ITCH_USER }}
+          ITCH_GAME: ${{ env.ITCH_GAME_ID }}

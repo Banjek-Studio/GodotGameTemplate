@@ -1,4 +1,4 @@
-name: "Export & Publish"
+name: "Main Modular Pipeline"
 
 on:
   push:
@@ -6,88 +6,26 @@ on:
       - main
   workflow_dispatch:
 
-env:
-  GODOT_VERSION: 4.5.1
-  # NOTE: ITCH_GAME_ID is intentionally omitted here.
-  # You must set 'ITCH_GAME_ID' in Settings -> Secrets and variables -> Actions -> Variables
-  # to prevent accidental uploads to the wrong page when using this as a template.
+permissions: write-all
 
 jobs:
-  export_and_deploy:
-    runs-on: ubuntu-latest
-    # 'write-all' permission is required for creating GitHub Releases
-    permissions: write-all
-    
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+  # 1. EXPORT
+  call-export:
+    uses: ./.github/workflows/job_export.yml
+    secrets: inherit
 
-      # 1. Export Godot Project
-      # This step builds all presets defined in export_presets.cfg
-      - name: Setup and Export Godot
-        uses: firebelley/godot-export@v5
-        with:
-          godot_executable_download_url: https://github.com/godotengine/godot/releases/download/${{ env.GODOT_VERSION }}-stable/Godot_v${{ env.GODOT_VERSION }}-stable_linux.x86_64.zip
-          godot_export_templates_download_url: https://github.com/godotengine/godot/releases/download/${{ env.GODOT_VERSION }}-stable/Godot_v${{ env.GODOT_VERSION }}-stable_export_templates.tpz
-          relative_project_path: ./
-          archive_output: true
-          cache: true
+  # 2. RELEASE
+  call-release:
+    needs: call-export
+    uses: ./.github/workflows/job_release.yml
+    with:
+      version: ${{ needs.call-export.outputs.version }}
+    secrets: inherit
 
-      # 2. Safety Check
-      # Ensures we don't upload if the game ID is missing
-      - name: Check for ITCH_GAME_ID
-        if: vars.ITCH_GAME_ID == ''
-        run: |
-          echo "::warning::ITCH_GAME_ID variable is missing! Builds were exported but NOT uploaded to Itch.io."
-          echo "To fix: Go to Settings -> Secrets and variables -> Actions -> Variables and add 'ITCH_GAME_ID'."
-
-      # 3. Deploy to Itch.io (Windows)
-      # Runs if: Export success AND ID exists AND (Windows is enabled OR undefined)
-      - name: Deploy Windows to Itch.io
-        if: success() && vars.ITCH_GAME_ID != '' && (vars.ENABLE_WINDOWS == 'true' || vars.ENABLE_WINDOWS == '')
-        uses: manleydev/butler-publish-itchio-action@master
-        env:
-          BUTLER_CREDENTIALS: ${{ secrets.BUTLER_CREDENTIALS }}
-          CHANNEL: windows
-          ITCH_GAME: ${{ vars.ITCH_GAME_ID }}
-          ITCH_USER: ${{ vars.ITCH_USER }}
-          # The path uses the repository name automatically
-          PACKAGE: /home/runner/work/${{ github.event.repository.name }}/${{ github.event.repository.name }}/${{ github.event.repository.name }}-Windows\ Desktop.zip
-          VERSION: ${{ github.run_number }}
-
-      # 4. Deploy to Itch.io (Linux)
-      - name: Deploy Linux to Itch.io
-        if: success() && vars.ITCH_GAME_ID != '' && (vars.ENABLE_LINUX == 'true' || vars.ENABLE_LINUX == '')
-        uses: manleydev/butler-publish-itchio-action@master
-        env:
-          BUTLER_CREDENTIALS: ${{ secrets.BUTLER_CREDENTIALS }}
-          CHANNEL: linux
-          ITCH_GAME: ${{ vars.ITCH_GAME_ID }}
-          ITCH_USER: ${{ vars.ITCH_USER }}
-          PACKAGE: /home/runner/work/${{ github.event.repository.name }}/${{ github.event.repository.name }}/${{ github.event.repository.name }}-Linux.zip
-          VERSION: ${{ github.run_number }}
-
-      # 5. Deploy to Itch.io (Web/HTML5)
-      - name: Deploy Web to Itch.io
-        if: success() && vars.ITCH_GAME_ID != '' && (vars.ENABLE_WEB == 'true' || vars.ENABLE_WEB == '')
-        uses: manleydev/butler-publish-itchio-action@master
-        env:
-          BUTLER_CREDENTIALS: ${{ secrets.BUTLER_CREDENTIALS }}
-          CHANNEL: html5
-          ITCH_GAME: ${{ vars.ITCH_GAME_ID }}
-          ITCH_USER: ${{ vars.ITCH_USER }}
-          PACKAGE: /home/runner/work/${{ github.event.repository.name }}/${{ github.event.repository.name }}/${{ github.event.repository.name }}-Web.zip
-          VERSION: ${{ github.run_number }}
-
-      # 6. Create GitHub Release
-      # Uploads the exported ZIP files directly to the GitHub Repository Releases page
-      - name: Create GitHub Release
-        if: success()
-        uses: ncipollo/release-action@v1
-        with:
-          tag: "v1.${{ github.run_number }}"
-          name: "Release v1.${{ github.run_number }}"
-          body: "Automated build from main branch."
-          artifacts: "*.zip"
-          token: ${{ secrets.GITHUB_TOKEN }}
-          allowUpdates: true
+  # 3. ITCH.IO DEPLOY
+  call-itch:
+    needs: [call-export, call-release]
+    uses: ./.github/workflows/job_itch.yml
+    with:
+      version: ${{ needs.call-export.outputs.version }}
+    secrets: inherit

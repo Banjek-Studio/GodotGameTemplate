@@ -1,0 +1,36 @@
+name: "Release Job"
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        required: true
+        type: string
+
+jobs:
+  release_job:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: game-builds
+          path: builds
+
+      - name: Zip Builds
+        run: |
+          cd builds
+          zip -r Windows.zip windows
+          zip -r Linux.zip linux
+          zip -r Web.zip web
+
+      - name: Create GitHub Release
+        uses: ncipollo/release-action@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          tag: "v${{ inputs.version }}"
+          name: "Release v${{ inputs.version }}"
+          body: "Automated build v${{ inputs.version }}"
+          artifacts: "builds/*.zip"
+          allowUpdates: true
