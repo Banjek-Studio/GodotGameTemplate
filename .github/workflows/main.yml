@@ -1,4 +1,4 @@
-name: "Export & Publish (Godot 4.5.1)"
+name: "Export & Publish (Fix)"
 
 on:
   push:
@@ -9,25 +9,19 @@ on:
 env:
   # Using the stable version 4.5.1
   GODOT_VERSION: 4.5.1
-  
-  # Your Itch.io username
   ITCH_USER: kharachko
-  
-  # NOTE: ITCH_GAME_ID is retrieved automatically from Repository Variables
-  # (Settings -> Secrets and variables -> Actions -> Variables)
+  # ITCH_GAME_ID береться з Settings -> Variables
 
 jobs:
   export_game:
     runs-on: ubuntu-latest
-    name: Export & Release
     permissions: write-all
     
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # 1. Install Wine
-      # Required for Godot to correctly embed icons and metadata into Windows .exe files on Linux
+      # 1. Встановлення Wine (Обов'язково для Windows іконок)
       - name: Install Wine
         id: wine_install
         run: |
@@ -36,9 +30,9 @@ jobs:
           sudo apt install -y wine64 wine32
           echo "WINE_PATH=$(which wine)" >> $GITHUB_OUTPUT
 
-      # 2. Setup and Export Godot
-      # Uses Godot 4.5.1 and the Wine path configured above
-      - name: Setup and Export Godot
+      # 2. Експорт проєкту
+      - name: Export Godot
+        id: export
         uses: firebelley/godot-export@v6
         with:
           godot_executable_download_url: https://github.com/godotengine/godot/releases/download/${{ env.GODOT_VERSION }}-stable/Godot_v${{ env.GODOT_VERSION }}-stable_linux.x86_64.zip
@@ -46,18 +40,19 @@ jobs:
           relative_project_path: ./
           archive_output: true
           cache: true
-          # Pass the Wine path to the exporter
           wine_path: ${{ steps.wine_install.outputs.WINE_PATH }}
+          # Використовувати шляхи з export_presets.cfg
+          use_preset_export_path: true
 
-      # 3. Check Game ID
-      # Prevents accidental uploads if you forget to set the variable in a new repo
-      - name: Check ITCH_GAME_ID
-        if: vars.ITCH_GAME_ID == ''
+      # 3. ДЕБАГ: Показати файли (Якщо помилка - дивіться сюди в логах)
+      - name: List Exported Files
         run: |
-          echo "::warning::ITCH_GAME_ID not found! Game will NOT be uploaded to Itch.io (GitHub Release only)."
+          echo "📂 Вміст папки експорту:"
+          ls -R ${{ steps.export.outputs.archive_directory }}
 
       # 4. Deploy Windows
-      - name: Deploy Windows to Itch.io
+      # УВАГА: Переконайтеся, що в Godot пресет називається точно "Windows Desktop"
+      - name: Deploy Windows
         if: success() && vars.ITCH_GAME_ID != '' && vars.DISABLE_WINDOWS != 'true'
         uses: manleydev/butler-publish-itchio-action@master
         env:
@@ -65,11 +60,13 @@ jobs:
           CHANNEL: windows
           ITCH_GAME: ${{ vars.ITCH_GAME_ID }}
           ITCH_USER: ${{ env.ITCH_USER }}
-          PACKAGE: /home/runner/work/${{ github.event.repository.name }}/${{ github.event.repository.name }}/${{ github.event.repository.name }}-Windows\ Desktop.zip
+          # Шукаємо zip файл у папці архіву. Назва залежить від імені пресету в Godot!
+          # Зазвичай це: <НазваПресету>.zip
+          PACKAGE: ${{ steps.export.outputs.archive_directory }}/Windows Desktop.zip
           VERSION: ${{ github.run_number }}
 
       # 5. Deploy Linux
-      - name: Deploy Linux to Itch.io
+      - name: Deploy Linux
         if: success() && vars.ITCH_GAME_ID != '' && vars.DISABLE_LINUX != 'true'
         uses: manleydev/butler-publish-itchio-action@master
         env:
@@ -77,11 +74,11 @@ jobs:
           CHANNEL: linux
           ITCH_GAME: ${{ vars.ITCH_GAME_ID }}
           ITCH_USER: ${{ env.ITCH_USER }}
-          PACKAGE: /home/runner/work/${{ github.event.repository.name }}/${{ github.event.repository.name }}/${{ github.event.repository.name }}-Linux.zip
+          PACKAGE: ${{ steps.export.outputs.archive_directory }}/Linux.zip
           VERSION: ${{ github.run_number }}
 
       # 6. Deploy Web
-      - name: Deploy Web to Itch.io
+      - name: Deploy Web
         if: success() && vars.ITCH_GAME_ID != '' && vars.DISABLE_WEB != 'true'
         uses: manleydev/butler-publish-itchio-action@master
         env:
@@ -89,18 +86,16 @@ jobs:
           CHANNEL: html5
           ITCH_GAME: ${{ vars.ITCH_GAME_ID }}
           ITCH_USER: ${{ env.ITCH_USER }}
-          PACKAGE: /home/runner/work/${{ github.event.repository.name }}/${{ github.event.repository.name }}/${{ github.event.repository.name }}-Web.zip
+          PACKAGE: ${{ steps.export.outputs.archive_directory }}/Web.zip
           VERSION: ${{ github.run_number }}
 
-      # 7. Create GitHub Release
-      # Always creates a downloadable release on GitHub
-      - name: Create GitHub Release
+      # 7. Release
+      - name: Create Release
         if: success()
         uses: ncipollo/release-action@v1
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           tag: "v1.${{ github.run_number }}"
           name: "Release v1.${{ github.run_number }}"
-          body: "Build Godot ${{ env.GODOT_VERSION }}"
-          artifacts: "*.zip"
+          artifacts: "${{ steps.export.outputs.archive_directory }}/*.zip"
           allowUpdates: true
