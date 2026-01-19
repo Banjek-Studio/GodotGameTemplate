@@ -1,4 +1,4 @@
-name: "Export & Publish (Fix)"
+name: "Export & Publish (v7.0.0)"
 
 on:
   push:
@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 env:
-  # Using the stable version 4.5.1
+  # Using Godot 4.5.1
   GODOT_VERSION: 4.5.1
   ITCH_USER: kharachko
   # ITCH_GAME_ID береться з Settings -> Variables
@@ -30,10 +30,10 @@ jobs:
           sudo apt install -y wine64 wine32
           echo "WINE_PATH=$(which wine)" >> $GITHUB_OUTPUT
 
-      # 2. Експорт проєкту
-      - name: Export Godot
-        id: export
-        uses: firebelley/godot-export@v6
+      # 2. Setup and Export Godot
+      # UPDATED: Using version v7.0.0 as requested
+      - name: Setup and Export Godot
+        uses: firebelley/godot-export@v7.0.0
         with:
           godot_executable_download_url: https://github.com/godotengine/godot/releases/download/${{ env.GODOT_VERSION }}-stable/Godot_v${{ env.GODOT_VERSION }}-stable_linux.x86_64.zip
           godot_export_templates_download_url: https://github.com/godotengine/godot/releases/download/${{ env.GODOT_VERSION }}-stable/Godot_v${{ env.GODOT_VERSION }}-stable_export_templates.tpz
@@ -41,18 +41,20 @@ jobs:
           archive_output: true
           cache: true
           wine_path: ${{ steps.wine_install.outputs.WINE_PATH }}
-          # Використовувати шляхи з export_presets.cfg
+          # Important: Use the paths defined in your export_presets.cfg
           use_preset_export_path: true
 
-      # 3. ДЕБАГ: Показати файли (Якщо помилка - дивіться сюди в логах)
-      - name: List Exported Files
+      # 3. Check Game ID
+      # Prevents accidental uploads if you forget to set the variable in a new repo
+      - name: Check ITCH_GAME_ID
+        if: vars.ITCH_GAME_ID == ''
         run: |
           echo "📂 Вміст папки експорту:"
           ls -R ${{ steps.export.outputs.archive_directory }}
 
       # 4. Deploy Windows
-      # УВАГА: Переконайтеся, що в Godot пресет називається точно "Windows Desktop"
-      - name: Deploy Windows
+      # Note: Ensure your Godot export preset is named "Windows Desktop"
+      - name: Deploy Windows to Itch.io
         if: success() && vars.ITCH_GAME_ID != '' && vars.DISABLE_WINDOWS != 'true'
         uses: manleydev/butler-publish-itchio-action@master
         env:
@@ -60,13 +62,13 @@ jobs:
           CHANNEL: windows
           ITCH_GAME: ${{ vars.ITCH_GAME_ID }}
           ITCH_USER: ${{ env.ITCH_USER }}
-          # Шукаємо zip файл у папці архіву. Назва залежить від імені пресету в Godot!
-          # Зазвичай це: <НазваПресету>.zip
+          # Path construction: Archive Directory + Preset Name + .zip
           PACKAGE: ${{ steps.export.outputs.archive_directory }}/Windows Desktop.zip
           VERSION: ${{ github.run_number }}
 
       # 5. Deploy Linux
-      - name: Deploy Linux
+      # Note: Ensure your Godot export preset is named "Linux"
+      - name: Deploy Linux to Itch.io
         if: success() && vars.ITCH_GAME_ID != '' && vars.DISABLE_LINUX != 'true'
         uses: manleydev/butler-publish-itchio-action@master
         env:
@@ -75,10 +77,12 @@ jobs:
           ITCH_GAME: ${{ vars.ITCH_GAME_ID }}
           ITCH_USER: ${{ env.ITCH_USER }}
           PACKAGE: ${{ steps.export.outputs.archive_directory }}/Linux.zip
+          PACKAGE: ${{ steps.export.outputs.archive_directory }}/Linux.zip
           VERSION: ${{ github.run_number }}
 
       # 6. Deploy Web
-      - name: Deploy Web
+      # Note: Ensure your Godot export preset is named "Web"
+      - name: Deploy Web to Itch.io
         if: success() && vars.ITCH_GAME_ID != '' && vars.DISABLE_WEB != 'true'
         uses: manleydev/butler-publish-itchio-action@master
         env:
@@ -86,6 +90,7 @@ jobs:
           CHANNEL: html5
           ITCH_GAME: ${{ vars.ITCH_GAME_ID }}
           ITCH_USER: ${{ env.ITCH_USER }}
+          PACKAGE: ${{ steps.export.outputs.archive_directory }}/Web.zip
           PACKAGE: ${{ steps.export.outputs.archive_directory }}/Web.zip
           VERSION: ${{ github.run_number }}
 
@@ -97,5 +102,6 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           tag: "v1.${{ github.run_number }}"
           name: "Release v1.${{ github.run_number }}"
+          body: "Build Godot ${{ env.GODOT_VERSION }}"
           artifacts: "${{ steps.export.outputs.archive_directory }}/*.zip"
           allowUpdates: true
