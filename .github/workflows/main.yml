@@ -1,4 +1,4 @@
-name: "Export & Publish (v7.0.0)"
+name: "Export & Publish (Fix)"
 
 on:
   push:
@@ -9,8 +9,11 @@ on:
 env:
   # Using Godot 4.5.1
   GODOT_VERSION: 4.5.1
+  
+  # Your Itch.io username
   ITCH_USER: kharachko
-  # ITCH_GAME_ID береться з Settings -> Variables
+  
+  # NOTE: ITCH_GAME_ID is retrieved automatically from Repository Variables
 
 jobs:
   export_game:
@@ -21,7 +24,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # 1. Встановлення Wine (Обов'язково для Windows іконок)
+      # 1. Install Wine
+      # Required for Godot to correctly embed icons and metadata into Windows .exe files on Linux
       - name: Install Wine
         id: wine_install
         run: |
@@ -30,8 +34,7 @@ jobs:
           sudo apt install -y wine64 wine32
           echo "WINE_PATH=$(which wine)" >> $GITHUB_OUTPUT
 
-      # 2. Setup and Export Godot
-      # UPDATED: Using version v7.0.0 as requested
+      # 2. Setup and Export Godot (v7.0.0)
       - name: Setup and Export Godot
         uses: firebelley/godot-export@v7.0.0
         with:
@@ -40,17 +43,16 @@ jobs:
           relative_project_path: ./
           archive_output: true
           cache: true
+          # Pass the Wine path to the exporter
           wine_path: ${{ steps.wine_install.outputs.WINE_PATH }}
           # Important: Use the paths defined in your export_presets.cfg
           use_preset_export_path: true
 
       # 3. Check Game ID
-      # Prevents accidental uploads if you forget to set the variable in a new repo
       - name: Check ITCH_GAME_ID
         if: vars.ITCH_GAME_ID == ''
         run: |
-          echo "📂 Вміст папки експорту:"
-          ls -R ${{ steps.export.outputs.archive_directory }}
+          echo "::warning::ITCH_GAME_ID not found! Game will NOT be uploaded to Itch.io."
 
       # 4. Deploy Windows
       # Note: Ensure your Godot export preset is named "Windows Desktop"
@@ -77,7 +79,6 @@ jobs:
           ITCH_GAME: ${{ vars.ITCH_GAME_ID }}
           ITCH_USER: ${{ env.ITCH_USER }}
           PACKAGE: ${{ steps.export.outputs.archive_directory }}/Linux.zip
-          PACKAGE: ${{ steps.export.outputs.archive_directory }}/Linux.zip
           VERSION: ${{ github.run_number }}
 
       # 6. Deploy Web
@@ -91,11 +92,10 @@ jobs:
           ITCH_GAME: ${{ vars.ITCH_GAME_ID }}
           ITCH_USER: ${{ env.ITCH_USER }}
           PACKAGE: ${{ steps.export.outputs.archive_directory }}/Web.zip
-          PACKAGE: ${{ steps.export.outputs.archive_directory }}/Web.zip
           VERSION: ${{ github.run_number }}
 
-      # 7. Release
-      - name: Create Release
+      # 7. Create GitHub Release
+      - name: Create GitHub Release
         if: success()
         uses: ncipollo/release-action@v1
         with:
