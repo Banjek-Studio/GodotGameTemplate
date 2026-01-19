@@ -1,4 +1,4 @@
-name: "Export & Publish (Org Vars)"
+name: "Export & Publish (Auto Paths)"
 
 on:
   push:
@@ -7,12 +7,8 @@ on:
   workflow_dispatch:
 
 env:
-  # Using Godot 4.5.1
   GODOT_VERSION: 4.5.1
-  
-  # NOTE: ITCH_USER and ITCH_GAME_ID are retrieved automatically from Variables.
-  # Ensure ITCH_USER is set in Organization Variables.
-  # Ensure ITCH_GAME_ID is set in Repository Variables.
+  # ITCH_USER and ITCH_GAME_ID are retrieved automatically from Variables.
 
 jobs:
   export_game:
@@ -24,7 +20,6 @@ jobs:
         uses: actions/checkout@v4
 
       # 1. Install Wine
-      # Required for Godot to correctly embed icons and metadata into Windows .exe files on Linux
       - name: Install Wine
         id: wine_install
         run: |
@@ -33,7 +28,9 @@ jobs:
           sudo apt install -y wine64 wine32
           echo "WINE_PATH=$(which wine)" >> $GITHUB_OUTPUT
 
-      # 2. Setup and Export Godot (v7.0.0)
+      # 2. Setup and Export Godot
+      # FIX: I removed "use_preset_export_path: true".
+      # Now the action will automatically generate paths regardless of your Godot settings.
       - name: Setup and Export Godot
         uses: firebelley/godot-export@v7.0.0
         with:
@@ -43,10 +40,8 @@ jobs:
           archive_output: true
           cache: true
           wine_path: ${{ steps.wine_install.outputs.WINE_PATH }}
-          use_preset_export_path: true
 
       # 3. Check Variables
-      # Verifies if variables are accessible (from Repo or Org settings)
       - name: Check Variables
         if: vars.ITCH_GAME_ID == '' || vars.ITCH_USER == ''
         run: |
@@ -54,7 +49,6 @@ jobs:
           echo "Make sure ITCH_USER is set in Organization Variables and ITCH_GAME_ID in Repository Variables."
 
       # 4. Deploy Windows
-      # Note: Ensure your Godot export preset is named "Windows Desktop"
       - name: Deploy Windows to Itch.io
         if: success() && vars.ITCH_GAME_ID != '' && vars.ITCH_USER != '' && vars.DISABLE_WINDOWS != 'true'
         uses: manleydev/butler-publish-itchio-action@master
@@ -62,13 +56,12 @@ jobs:
           BUTLER_CREDENTIALS: ${{ secrets.BUTLER_CREDENTIALS }}
           CHANNEL: windows
           ITCH_GAME: ${{ vars.ITCH_GAME_ID }}
-          # GitHub automatically resolves this from Org Variables if not present in Repo
           ITCH_USER: ${{ vars.ITCH_USER }}
+          # The action automatically names the zip based on the preset name
           PACKAGE: ${{ steps.export.outputs.archive_directory }}/Windows Desktop.zip
           VERSION: ${{ github.run_number }}
 
       # 5. Deploy Linux
-      # Note: Ensure your Godot export preset is named "Linux"
       - name: Deploy Linux to Itch.io
         if: success() && vars.ITCH_GAME_ID != '' && vars.ITCH_USER != '' && vars.DISABLE_LINUX != 'true'
         uses: manleydev/butler-publish-itchio-action@master
@@ -81,7 +74,6 @@ jobs:
           VERSION: ${{ github.run_number }}
 
       # 6. Deploy Web
-      # Note: Ensure your Godot export preset is named "Web"
       - name: Deploy Web to Itch.io
         if: success() && vars.ITCH_GAME_ID != '' && vars.ITCH_USER != '' && vars.DISABLE_WEB != 'true'
         uses: manleydev/butler-publish-itchio-action@master
